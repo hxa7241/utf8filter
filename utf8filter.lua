@@ -1,8 +1,8 @@
 #!/usr/bin/env lua
 --------------------------------------------------------------------------------
 --                                                                            --
---  UTF-8 filter (Lua 5.1 / 5.2)                                              --
---  Harrison Ainsworth / HXA7241 : 2012                                       --
+--  UTF-8 filter 1 (Lua 5.1 / 5.2)                                            --
+--  Harrison Ainsworth / HXA7241 : 2012-2014                                  --
 --                                                                            --
 --  http://www.hxa.name/tools/                                                --
 --                                                                            --
@@ -16,8 +16,7 @@
 --- Read next valid UTF-8 char from open file.
 --- (Discards invalid chars until (moving forward) a valid one is found.)
 ---
---- Invalid meaning: malformed, overlong, surrogate, non-char.
----
+--- Invalid meaning: malformed, overlong, surrogate, non-char, out-of-range.
 --- According to: RFC-3629 -- http://tools.ietf.org/html/rfc3629
 --- and: Unicode 6.1 -- http://www.unicode.org/versions/Unicode6.1.0/
 ---
@@ -60,10 +59,13 @@ function readCharUtf8( fileIn )
       local isNonchar2 = (#bytes == 3) and
          ((bytes[1] == 0xEF) and (bytes[2] == 0xB7) and
          (bytes[3] >= 0x90) and (bytes[3] <= 0xA7))
+      local isTooHigh = (#bytes == 4) and
+         ((bytes[1] >= 0xF4) and (bytes[2] >= 0x90) and
+         (bytes[3] >= 0x80) and (bytes[4] >= 0x80))
 
       -- invalid
       if isMalformed or isOverlong or isSurrogate or
-         isNonchar1a or isNonchar1b or isNonchar2 then
+         isNonchar1a or isNonchar1b or isNonchar2 or isTooHigh then
 
          -- reset read state (return stream failure)
          if (#bytes > 1) and isMalformed and (not fileIn:seek( "cur", -1 )) then
@@ -96,13 +98,13 @@ if (arg[1] == "-?") or (arg[1] == "--help") then
 
    -- print help message
    print( "\n" ..
-      "  UTF-8 filter (Lua 5.1 / 5.2)\n" ..
-      "  Harrison Ainsworth / HXA7241 : 2012-07-12\n" ..
-      "  http://www.hxa.name/\n" ..
+      "  UTF-8 filter 1 (Lua 5.1 / 5.2)\n" ..
+      "  Harrison Ainsworth / HXA7241 : 2014-05-18\n" ..
+      "  http://www.hxa.name\n" ..
       "\n" ..
       "Reads stdin, and writes to stdout only the valid UTF-8 content.\n" ..
-      "(Invalid meaning: malformed, overlong, surrogate, non-char --\n" ..
-      "according to RFC-3629 and Unicode 6.1.)\n" ..
+      "(Invalid meaning: malformed, overlong, surrogate, non-char,\n" ..
+      "out-of-range -- according to RFC-3629 and Unicode 6.1.)\n" ..
       "\n" ..
       "usage:\n" ..
       "  utf8filter.lua < inFile > outFile\n" )
@@ -138,7 +140,7 @@ end
 illegal code points
 -------------------
 
-### surrogates
+### surrogates ###
 
 high: U+D800 - U+DBFF
 low:  U+DC00 - U+DFFF
@@ -152,7 +154,7 @@ U+D800 = ED A0 80
 U+DFFF = ED BF BF
 
 
-### non-chars
+### non-chars ###
 
 1a and 1b:
 
@@ -186,5 +188,13 @@ U+FDD0 - U+FDEF
 11111101 11010000 - 11111101 11101111
 11101111 10110111 10010000 - 11101111 10110111 10101111
 EF B7 90 - EF B7 A7
+
+
+### too high ###
+
+all at or above:
+U-110000  F4 90 80 80
+
+are out of range
 
 --]]
