@@ -1,5 +1,5 @@
 
-UTF-8 Filter
+UTF-8 Filter tool
 ======================================================================
 
 
@@ -37,9 +37,9 @@ replaces it as UTF-8 content.
 
 Usage:
   utf8filter[b] [-(c|f|r)] [< inFile] [> outFile]
--c -- check (default)
--f -- filter
--r -- replace
+-c  check (default)  
+-f  filter  
+-r  replace
 
 Languages:
 * OCaml 4.02 (or thereabouts)
@@ -80,7 +80,7 @@ Metadata
 --------
 
 DC:`
-   title:`UTF-8 Filter`
+   title:`UTF-8 Filter tool`
    creator:`Harrison Ainsworth`
 
    date:`2015-04-25`

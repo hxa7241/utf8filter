@@ -1,6 +1,6 @@
 (*------------------------------------------------------------------------------
 
-   UTF-8 Filter 3 (OCaml 4.02)
+   UTF-8 Filter tool 3 (OCaml 4.02)
    Harrison Ainsworth / HXA7241 : 2015
 
    http://www.hxa.name/tools/
@@ -40,9 +40,9 @@ try
          \n\
          Usage:\n\
          \ \ utf8filter [-(c|f|r)] [< inFile] [> outFile]\n\
-         -c -- check (default)\n\
-         -f -- filter\n\
-         -r -- replace\n"
+         -c  check (default)\n\
+         -f  filter\n\
+         -r  replace\n"
 
    (* execute *)
    else begin
