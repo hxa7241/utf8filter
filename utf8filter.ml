@@ -1,6 +1,6 @@
 (*------------------------------------------------------------------------------
 
-   UTF-8 Filter 3 (OCaml 4.02)
+   UTF-8 Filter lib (OCaml 4.02)
    Harrison Ainsworth / HXA7241 : 2015
 
    http://www.hxa.name/tools/
@@ -12,79 +12,193 @@
 
 
 
-type mode = Check | Filter | Replace ;;
+(* --- types --- *)
+
+type charResult = Char of string | Bad of string | EOF of string
+
+type validness = Invalid | Valid
+type condition = Incomplete of validness | Complete of validness
 
 
-try
 
-   (* check if help message needed *)
-   if ((Array.length Sys.argv) > 1) &&
-      ((Sys.argv.(1) = "-?") || (Sys.argv.(1) = "--help"))
 
-   (* print help *)
-   then
-      print_endline "\n\
-         \ \ UTF-8 Filter (OCaml 4.02)\n\
-         \ \ Harrison Ainsworth / HXA7241 : 2015-04-25\n\
-         \ \ http://www.hxa.name\n\
-         \n\
-        Reads stdin and checks, filters, or replaces it as UTF-8 content.\n\
-         * Check: returns status 0 if all content valid UTF-8, \
-           else status 1.\n\
-         * Filter: writes to stdout only the valid UTF-8 content.\n\
-         * Replace: writes to stdout the valid UTF-8 content with invalid\n\
-         \ \ parts replaced with standard replacement chars (U+FFFD \
-           U8+EFBFBD).\n\
-         \n\
-         (According to RFC-3629 and Unicode 7.0.).\n\
-         \n\
-         Usage:\n\
-         \ \ utf8filter [-(c|f|r)] [< inFile] [> outFile]\n\
-         -c -- check (default)\n\
-         -f -- filter\n\
-         -r -- replace\n"
+(* --- values --- *)
 
-   (* execute *)
-   else begin
+(* standard Unicode 'replacement char' U+FFFD UTF-8:EFBFBD *)
+let _REPLACEMENT_CHAR = "\xEF\xBF\xBD"
 
-      set_binary_mode_in  stdin  true ;
-      set_binary_mode_out stdout true ;
-      set_binary_mode_out stderr true ;
 
-      let mode:mode =
-         if (Array.length Sys.argv) > 1
-         then
-            let option1 = Sys.argv.(1) in
-            match option1 with
-            | "-c" -> Check
-            | "-f" -> Filter
-            | "-r" -> Replace
-            | _    ->
-               begin
-                  prerr_endline
-                     ("*** Failed: unrecognized option: " ^ option1) ;
-                  exit 1
+
+
+(* --- functions --- *)
+
+(* implementation *)
+
+let string_of_char (c:char) : string = String.make 1 c
+(*
+let string_of_byte (b:int)  : string = String.make 1 (char_of_int (b land 0xFF))
+*)
+
+
+(**
+ * Somewhat like a function passed to a fold: it is called repeatedly on a
+ * sequence, the params state and octets are ongoing state, and nexto is the
+ * next element to process.
+ *
+ * Invalid sequences end at the next head-byte found -- which therefore must be
+ * put back into the stream by the caller, so it can be read again as the start
+ * of the next sequence.
+ *
+ * References:
+ * * "Unicode Standard 7.0" ; TheUnicodeConsortium ; 2014 / ISBN-9781936213092 /
+ *   book .
+ *    * sect 3.9, D92: p124-p126
+ * * "RFC 3629" ; TheInternetSociety ; 2003 / txt .
+ *
+ * Validity as expressed by the unicode standard:
+ *
+ * byte 0:  00 - 7F (0???????) | C2 - F4
+ *    110????? && >= C2
+ *    1110????
+ *    11110??? && <= F4
+ * byte 1:  80 - BF (10??????) unless:
+ *    byte 0 = E0 : byte 1 = A0 - BF (101?????)
+ *    byte 0 = ED : byte 1 = 80 - 9F (100?????)
+ *    byte 0 = F0 : byte 1 = 90 - BF
+ *    byte 0 = F4 : byte 1 = 80 - 8F (1000????)
+ * byte 2:  80 - BF (10??????)
+ * byte 3:  80 - BF (10??????)
+ *
+ * Validity as expressed by the rfc:
+ *
+ * UTF8-octets = *( UTF8-char )
+ * UTF8-char   = UTF8-1 / UTF8-2 / UTF8-3 / UTF8-4
+ * UTF8-1      = %x00-7F
+ * UTF8-2      = %xC2-DF UTF8-tail
+ * UTF8-3      = %xE0 %xA0-BF UTF8-tail / %xE1-EC 2( UTF8-tail ) /
+ *               %xED %x80-9F UTF8-tail / %xEE-EF 2( UTF8-tail )
+ * UTF8-4      = %xF0 %x90-BF 2( UTF8-tail ) / %xF1-F3 3( UTF8-tail ) /
+ *               %xF4 %x80-8F 2( UTF8-tail )
+ * UTF8-tail   = %x80-BF
+ *)
+let classify (state:validness) (octets:string) (nexto:char) : condition =
+
+   let index = String.length octets
+   and nextb = int_of_char nexto
+   in
+
+   let validness =
+      if (match state with
+         (* previously invalid stays invalid *)
+         | Invalid when index <> 0 -> false
+         | Invalid | Valid ->
+            (* is next octet valid ? *)
+            begin match index with
+            | 0 ->
+               (* head-byte (including ASCII) *)
+               (nexto <= '\x7F') || ((nexto >= '\xC2') && (nexto <= '\xF4'))
+            | 1 ->
+               (* first tail-byte has extra constraints *)
+               begin match octets.[0] with
+               | '\xE0' -> (nextb land 0b11100000) = 0b10100000
+               | '\xED' -> (nextb land 0b11100000) = 0b10000000
+               | '\xF0' -> (nextb >= 0x90) && (nextb <= 0xBF)
+               | '\xF4' -> (nextb land 0b11110000) = 0b10000000
+               | _      -> (nextb land 0b11000000) = 0b10000000
                end
-         else Check
+            | 2
+            | 3 ->
+               (* other, simple, tail-bytes *)
+               (nextb land 0b11000000) = 0b10000000
+            | _ -> false
+            end)
+      then Valid else Invalid
+   in
 
-      and stdinStream = Stream.of_channel stdin in
-
-      try
-         match mode with
-         | Check   ->
-            if Utf8f.checkStream stdinStream
-            then prerr_endline "UTF-8 check: OK"
-            else (prerr_endline "UTF-8 check: invalid" ; exit 1)
-         | Filter  -> Utf8f.filterStream  stdinStream print_string
-         | Replace -> Utf8f.replaceStream stdinStream print_string
-      with
-      | Sys_error s ->
-         begin
-            prerr_endline ("*** Failed: system IO failure: " ^ s) ;
-            exit 1
+   let isComplete =
+      match validness with
+      | Valid ->
+         (* length according to head octet has been reached *)
+         begin match index with
+         | 0 -> nexto      <= '\x7F'
+         | 1 -> octets.[0] <  '\xE0'
+         | 2 -> octets.[0] <  '\xF0'
+         | _ -> true
          end
+      | Invalid ->
+         (* invalid sequences end at the next head-byte found
+            (which must be put back by caller) *)
+         (index > 0) && ((nextb land 0b11000000) <> 0b10000000)
+   in
 
-   end
+   if isComplete then Complete validness else Incomplete validness
 
-with
-| e -> prerr_string "*** General failure: " ; raise e
+
+(* primary / low-level *)
+
+let readChar (inStream:char Stream.t) : charResult =
+
+   (* accumulate bytes into a chunk *)
+   let rec readBytes state bytes =
+      (* peek at next byte *)
+      match Stream.peek inStream with
+      | None      -> EOF bytes
+      | Some next ->
+         (* consume next byte, and add to chunk *)
+         let accumulate () =
+            let () = Stream.junk inStream in
+            bytes ^ (string_of_char next)
+         in
+         match classify state bytes next with
+         | Incomplete state -> readBytes state (accumulate ())
+         | Complete Valid   -> Char (accumulate ())
+         | Complete Invalid -> Bad bytes
+   in
+
+   readBytes Invalid ""
+
+
+(* secondary, for streams *)
+
+let rec checkStream (input:char Stream.t) : bool =
+
+   match readChar input with
+   | Char _ -> checkStream input
+   | Bad  _ -> false
+   | EOF  s -> (String.length s) = 0
+
+
+let rec scanStream (replacement:string)
+   (input:char Stream.t) (output:string->unit) : unit =
+
+   match readChar input with
+   | Char s -> (output s           ; scanStream replacement input output)
+   | Bad  _ -> (output replacement ; scanStream replacement input output)
+   | EOF  s -> output (if (String.length s) = 0 then "" else replacement)
+
+
+let filterStream : (char Stream.t) -> (string->unit) -> unit =
+   scanStream ""
+
+
+let replaceStream : (char Stream.t) -> (string->unit) -> unit =
+   scanStream _REPLACEMENT_CHAR
+
+
+(* secondary, for strings *)
+
+let check (s:string) : bool = checkStream (Stream.of_string s)
+
+
+let scanString (replacement:string) (s:string) : string =
+
+   let output = ref "" in
+   scanStream replacement
+      (Stream.of_string s) (fun s -> output := !output ^ s) ;
+   !output
+
+
+let filter : string -> string  = scanString ""
+
+
+let replace : string -> string = scanString _REPLACEMENT_CHAR
