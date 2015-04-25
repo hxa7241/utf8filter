@@ -1,3 +1,7 @@
 /_dev
 /temp
 /obj
+utf8filter
+utf8filterb
+*.cm?
+*.o
