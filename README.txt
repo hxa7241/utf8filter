@@ -6,7 +6,7 @@ UTF-8 Filter tool
 Harrison Ainsworth / HXA7241 : 2012-2015  
 http://www.hxa.name/tools
 
-2015-04-25  
+2015-05-02  
 2014-05-18  
 2013-01-18  
 2012-07-12
@@ -18,6 +18,7 @@ Contents
 --------
 
 * Description
+* Build
 * Changes
 * Metadata
 
@@ -46,16 +47,29 @@ Languages:
 
 
 
+Build
+-----
+
+Run make, to produce:
+* utf8filter      -- native executable
+* utf8filterb     -- bytecode executable
+* utf8filter.cmi  -- library interface
+* utf8filter.cmxa -- native library
+* utf8filter.cma  -- bytecode library
+* utf8filter.a    -- library object
+
+
+
 Changes
 -------
 
-### Version 3 : 2015-04-25 ###
+### Version 3 : 2015-05-02 ###
 
 (OCaml)
 
 * wholly re-implemented
    * separate library module
-   * build native and bytecode executables
+   * build native and bytecode
 
 
 ### Version 2 : 2014-05-18 ###
@@ -81,20 +95,20 @@ Metadata
 
 DC:`
    title:`UTF-8 Filter tool`
-   creator:`Harrison Ainsworth`
+   creator:`Harrison Ainsworth / HXA7241`
 
-   date:`2015-04-25`
+   date:`2015-05-02`
    date:`2014-05-18`
    date:`2013-01-18`
    date:`2012-07-12`
 
    description:`A small command-line tool that: reads stdin and checks, filters, or replaces it as UTF-8 content.`
-   subject:`Unicode, UTF-8, text, plain-text, command-line`
+   subject:`Unicode, UTF-8, text, plain-text, command-line, OCaml`
 
    type:`software`
    language:`en-GB`
    language:`OCaml 4.02`
-   format:`text/ocaml-4`
+   format:`text/ocaml`
 
    relation:`http://www.hxa.name`
    identifier:`http://www.hxa.name/tools/#utf8filter`
