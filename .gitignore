@@ -3,5 +3,7 @@
 /obj
 utf8filter
 utf8filterb
-*.cm?
-*.o
+*.cmxa
+*.cma
+*.cm[ixo]
+*.[ao]
