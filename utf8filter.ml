@@ -139,23 +139,23 @@ let classify (state:validness) (octets:string) (nexto:char) : condition =
 let readChar (inStream:char Stream.t) : charResult =
 
    (* accumulate bytes into a chunk *)
-   let rec readBytes state bytes =
+   let rec readBytes (state:validness) (bytes:Buffer.t) : charResult =
       (* peek at next byte *)
       match Stream.peek inStream with
-      | None      -> EOF bytes
+      | None      -> EOF (Buffer.contents bytes)
       | Some next ->
          (* consume next byte, and add to chunk *)
-         let accumulate () =
-            let () = Stream.junk inStream in
-            bytes ^ (string_of_char next)
+         let accumulate () : unit =
+            Stream.junk inStream ;
+            Buffer.add_string bytes (string_of_char next)
          in
-         match classify state bytes next with
-         | Incomplete state -> readBytes state (accumulate ())
-         | Complete Valid   -> Char (accumulate ())
-         | Complete Invalid -> Bad bytes
+         match classify state (Buffer.contents bytes) next with
+         | Incomplete state -> readBytes state (accumulate () ; bytes)
+         | Complete Valid   -> Char (accumulate () ; Buffer.contents bytes)
+         | Complete Invalid -> Bad (Buffer.contents bytes)
    in
 
-   readBytes Invalid ""
+   readBytes Invalid (Buffer.create 8)
 
 
 (* secondary, for streams *)
@@ -192,10 +192,9 @@ let check (s:string) : bool = checkStream (Stream.of_string s)
 
 let scanString (replacement:string) (s:string) : string =
 
-   let output = ref "" in
-   scanStream replacement
-      (Stream.of_string s) (fun s -> output := !output ^ s) ;
-   !output
+   let buf = Buffer.create (String.length s) in
+   scanStream replacement (Stream.of_string s) (Buffer.add_string buf) ;
+   Buffer.contents buf
 
 
 let filter : string -> string  = scanString ""
