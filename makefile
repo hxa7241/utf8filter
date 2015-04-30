@@ -3,17 +3,28 @@
 
 
 EXE=utf8filter
-SRC=utf8filter.mli utf8filter.ml utf8filtertool.ml
+LIB=utf8filter
+LIBSRC=utf8filter.mli utf8filter.ml
+EXESRC=$(LIBSRC) utf8filtertool.ml
 OPTS=-principal -safe-string -strict-formats -w +A
 
-all: $(EXE)
 
-$(EXE): $(SRC)
-	ocamlopt $(OPTS) -o $@ $(SRC)
-	ocamlc -compat-32 $(OPTS) -o $@b $(SRC)
-	rm *.cm? *.o
+all: exes libs
+
+exes: $(EXE) $(EXE)b 
+$(EXE) $(EXE)b: $(EXESRC)
+	ocamlopt.opt -o $(EXE) $(OPTS) $(EXESRC)
+	ocamlc.opt -o $(EXE)b -compat-32 $(OPTS) $(EXESRC)
+	rm -f *.cm[ixo] *.o
+
+libs: $(LIB).cmi $(LIB).cmxa $(LIB).cma $(LIB).a
+$(LIB).cmi $(LIB).cmxa $(LIB).cma: $(LIBSRC)
+	ocamlopt.opt -a -o $(LIB).cmxa $(OPTS) $(LIBSRC)
+	ocamlc.opt -a -o $(LIB).cma -compat-32 $(OPTS) $(LIBSRC)
+	rm -f *.cm[xo] *.[o]
+
 
 .PHONY: clean
 clean:
-	rm -f *.cm? *.o
-	rm -f $(EXE) $(EXE)b
+	rm -f *.cm[ixo] *.[ao]
+	rm -f $(EXE) $(EXE)b $(LIB).cmi $(LIB).cmxa $(LIB).cma $(LIB).a
