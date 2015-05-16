@@ -12,9 +12,6 @@
 
 
 
-type mode = Check | Filter | Replace ;;
-
-
 try
 
    (* check if help message needed *)
@@ -47,42 +44,39 @@ try
    (* execute *)
    else begin
 
+      let fail (message:string) : 'a =
+         begin
+            prerr_endline ("*** Failed: " ^ message ^ ".") ;
+            exit 1
+         end
+      in
+
       set_binary_mode_in  stdin  true ;
       set_binary_mode_out stdout true ;
       set_binary_mode_out stderr true ;
 
-      let mode:mode =
-         if (Array.length Sys.argv) > 1
-         then
-            let option1 = Sys.argv.(1) in
-            match option1 with
-            | "-c" -> Check
-            | "-f" -> Filter
-            | "-r" -> Replace
-            | _    ->
-               begin
-                  prerr_endline
-                     ("*** Failed: unrecognized option: " ^ option1) ;
-                  exit 1
-               end
-         else Check
-
-      and stdinStream = Stream.of_channel stdin in
+      let stdinStream = Stream.of_channel stdin in
 
       try
-         match mode with
-         | Check   ->
+         (* dispatch on options *)
+         match Array.sub Sys.argv 1 ((Array.length Sys.argv) - 1) with
+
+         | [||] (* default *)
+         | [|"-c"|] ->
             if Utf8filter.checkStream stdinStream
-            then prerr_endline "UTF-8 check: OK"
+            then  prerr_endline "UTF-8 check: OK"
             else (prerr_endline "UTF-8 check: invalid" ; exit 1)
-         | Filter  -> Utf8filter.filterStream  stdinStream print_string
-         | Replace -> Utf8filter.replaceStream stdinStream print_string
+         | [|"-f"|] -> Utf8filter.filterStream  stdinStream print_string
+         | [|"-r"|] -> Utf8filter.replaceStream stdinStream print_string
+
+         | _ as a   ->
+            fail (
+               match a with
+               | [|s|] -> "unrecognized option: " ^ s
+               | _     -> "unrecognized command -- too many options/items"
+            )
       with
-      | Sys_error s ->
-         begin
-            prerr_endline ("*** Failed: system IO failure: " ^ s) ;
-            exit 1
-         end
+      | Sys_error s -> fail ("system IO failure: " ^ s)
 
    end
 
