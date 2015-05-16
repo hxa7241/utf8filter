@@ -11,9 +11,11 @@ OPTS=-principal -safe-string -strict-formats -w +A
 
 all: exes libs
 
-exes: $(EXE) $(EXE)b 
-$(EXE) $(EXE)b: $(EXESRC)
+exes: $(EXE) $(EXE)b
+$(EXE): $(EXESRC)
 	ocamlopt.opt -o $(EXE) $(OPTS) $(EXESRC)
+	rm -f *.cm[ixo] *.o
+$(EXE)b: $(EXESRC)
 	ocamlc.opt -o $(EXE)b -compat-32 $(OPTS) $(EXESRC)
 	rm -f *.cm[ixo] *.o
 
