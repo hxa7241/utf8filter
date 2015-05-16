@@ -14,10 +14,10 @@ all: exes libs
 exes: $(EXE) $(EXE)b
 $(EXE): $(EXESRC)
 	ocamlopt.opt -o $(EXE) $(OPTS) $(EXESRC)
-	rm -f *.cm[ixo] *.o
+	rm -f *.cm[xo] *.o utf8filtertool.cmi
 $(EXE)b: $(EXESRC)
 	ocamlc.opt -o $(EXE)b -compat-32 $(OPTS) $(EXESRC)
-	rm -f *.cm[ixo] *.o
+	rm -f *.cm[xo] *.o utf8filtertool.cmi
 
 libs: $(LIB).cmi $(LIB).cmxa $(LIB).cma $(LIB).a
 $(LIB).cmi $(LIB).cmxa $(LIB).cma: $(LIBSRC)
