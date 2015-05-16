@@ -6,7 +6,7 @@ UTF-8 Filter tool
 Harrison Ainsworth / HXA7241 : 2012-2015  
 http://www.hxa.name/tools
 
-2015-05-02  
+2015-05-16  
 2014-05-18  
 2013-01-18  
 2012-07-12
@@ -51,8 +51,12 @@ Build
 -----
 
 Run make, to produce:
+
+executables:
 * utf8filter      -- native executable
 * utf8filterb     -- bytecode executable
+
+libraries:
 * utf8filter.cmi  -- library interface
 * utf8filter.cmxa -- native library
 * utf8filter.cma  -- bytecode library
@@ -63,7 +67,7 @@ Run make, to produce:
 Changes
 -------
 
-### Version 3 : 2015-05-02 ###
+### Version 3 : 2015-05-16 ###
 
 (OCaml)
 
@@ -97,7 +101,7 @@ DC:`
    title:`UTF-8 Filter tool`
    creator:`Harrison Ainsworth / HXA7241`
 
-   date:`2015-05-02`
+   date:`2015-05-16`
    date:`2014-05-18`
    date:`2013-01-18`
    date:`2012-07-12`

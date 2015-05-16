@@ -1,6 +1,6 @@
 (*------------------------------------------------------------------------------
 
-   UTF-8 Filter tool 3 (OCaml 4.02)
+   UTF-8 Filter tool (OCaml 4.02)
    Harrison Ainsworth / HXA7241 : 2015
 
    http://www.hxa.name/tools/
@@ -25,10 +25,10 @@ try
    then
       print_endline "\n\
          \ \ UTF-8 Filter (OCaml 4.02)\n\
-         \ \ Harrison Ainsworth / HXA7241 : 2015-04-25\n\
+         \ \ Harrison Ainsworth / HXA7241 : 2015-05-16\n\
          \ \ http://www.hxa.name\n\
          \n\
-        Reads stdin and checks, filters, or replaces it as UTF-8 content.\n\
+         Reads stdin and checks, filters, or replaces it as UTF-8 content.\n\
          * Check: returns status 0 if all content valid UTF-8, \
            else status 1.\n\
          * Filter: writes to stdout only the valid UTF-8 content.\n\
