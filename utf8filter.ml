@@ -1,8 +1,7 @@
-#!/usr/bin/env ocaml
 (*------------------------------------------------------------------------------
 
-   UTF-8 Filter 2 (OCaml 4.00)
-   Harrison Ainsworth / HXA7241 : 2012-2014
+   UTF-8 Filter lib (OCaml 4.02)
+   Harrison Ainsworth / HXA7241 : 2015
 
    http://www.hxa.name/tools/
 
@@ -12,276 +11,193 @@
 
 
 
-(* general part ------------------------------------------------------------- *)
 
-module Utf8 :
-sig
-   type result = Char of string | Invalid of string | EOF | Fail
-   val readChar : in_channel -> result
-end =
+(* --- types --- *)
 
-struct
+type charResult = Char of string | Bad of string | EOF of string
 
-let string_of_byte b = String.make 1 (char_of_int b)
+type validness = Invalid | Valid
+type condition = Incomplete of validness | Complete of validness
 
 
-let invalidities bytes =
-   let len  = String.length bytes in
-   let last = len - 1 in
-
-   let isMalformed = ((len > 1) &&
-      ((bytes.[last] < '\x80') || (bytes.[last] > '\xBF'))) ||
-      ((len = 1) && (((bytes.[last] > '\x7F') &&
-      (bytes.[last] < '\xC2')) || (bytes.[last] > '\xF4')))
-   and isOverlong = (len = 2) &&
-      (((bytes.[0] = '\xE0') && (bytes.[1] < '\xA0')) ||
-      ((bytes.[0] = '\xF0') && (bytes.[1] < '\x90')))
-   and isSurrogate = (len = 2) &&
-      ((bytes.[0] = '\xED') && (bytes.[1] >= '\xA0'))
-   and isNonchar1a = (len = 3) &&
-      ((bytes.[0] = '\xEF') && (bytes.[1] = '\xBF') &&
-      (bytes.[2] >= '\xBE'))
-   and isNonchar1b =
-      if len <> 4 then false else
-         let p = (((int_of_char bytes.[1]) / 16) mod 4) +
-            ((int_of_char bytes.[0]) mod 7) * 4 in
-         (p >= 0x01) && (p <= 0x10) &&
-            (bytes.[2] = '\xBF') && (bytes.[3] >= '\xBE') &&
-            (((int_of_char bytes.[1]) mod 0x10) = 0x0F) &&
-            (((int_of_char bytes.[0]) / 16) = 0x0F)
-   and isNonchar2 = (len = 3) &&
-      ((bytes.[0] = '\xEF') && (bytes.[1] = '\xB7') &&
-      (bytes.[2] >= '\x90') && (bytes.[2] <= '\xA7'))
-   and isTooHigh = (len = 4) &&
-      ((bytes.[0] >= '\xF4') && (bytes.[1] >= '\x90') &&
-      (bytes.[2]  >= '\x80') && (bytes.[3] >= '\x80')) in
-
-   (isMalformed, isOverlong, isSurrogate,
-    isNonchar1a || isNonchar1b || isNonchar2, isTooHigh)
 
 
-let isComplete bytes =
-   let len = String.length bytes in
-   ((len = 1) && (bytes.[0] <= '\x7F')) ||
-   ((len = 2) && (bytes.[0] <  '\xE0')) ||
-   ((len = 3) && (bytes.[0] <  '\xF0')) ||
-   ( len = 4)
+(* --- values --- *)
+
+(* standard Unicode 'replacement char' U+FFFD UTF-8:EFBFBD *)
+let _REPLACEMENT_CHAR = "\xEF\xBF\xBD"
 
 
-type result = Char of string | Invalid of string | EOF | Fail
+
+
+(* --- functions --- *)
+
+(* implementation *)
+
+let string_of_char (c:char) : string = String.make 1 c
+(*
+let string_of_byte (b:int)  : string = String.make 1 (char_of_int (b land 0xFF))
+*)
 
 
 (**
- * Read next valid UTF-8 char or invalid bytes from open file.
+ * Somewhat like a function passed to a fold: it is called repeatedly on a
+ * sequence, the params state and octets are ongoing state, and nexto is the
+ * next element to process.
  *
- * Effectively partitions the file into valid and invalid parts: so
- * if you just output the Char and Invalid strings again, interleaved
- * in order, you get exactly the original file.
+ * Invalid sequences end at the next head-byte found -- which therefore must be
+ * put back into the stream by the caller, so it can be read again as the start
+ * of the next sequence.
  *
- * Invalid meaning: malformed, overlong, surrogate, non-char, out-of-range.
- * According to: RFC-3629 -- http://tools.ietf.org/html/rfc3629
- * and: Unicode 6.1 -- http://www.unicode.org/versions/Unicode6.1.0/
+ * References:
+ * * "Unicode Standard 7.0" ; TheUnicodeConsortium ; 2014 / ISBN-9781936213092 /
+ *   book .
+ *    * sect 3.9, D92: p124-p126
+ * * "RFC 3629" ; TheInternetSociety ; 2003 / txt .
  *
- * @param fileIn (in(out)) open file to read from
- * @return valid UTF-8 Char (string) | Invalid (string) | EOF | Fail
+ * Validity as expressed by the unicode standard:
+ *
+ * byte 0:  00 - 7F (0???????) | C2 - F4
+ *    110????? && >= C2
+ *    1110????
+ *    11110??? && <= F4
+ * byte 1:  80 - BF (10??????) unless:
+ *    byte 0 = E0 : byte 1 = A0 - BF (101?????)
+ *    byte 0 = ED : byte 1 = 80 - 9F (100?????)
+ *    byte 0 = F0 : byte 1 = 90 - BF
+ *    byte 0 = F4 : byte 1 = 80 - 8F (1000????)
+ * byte 2:  80 - BF (10??????)
+ * byte 3:  80 - BF (10??????)
+ *
+ * Validity as expressed by the rfc:
+ *
+ * UTF8-octets = *( UTF8-char )
+ * UTF8-char   = UTF8-1 / UTF8-2 / UTF8-3 / UTF8-4
+ * UTF8-1      = %x00-7F
+ * UTF8-2      = %xC2-DF UTF8-tail
+ * UTF8-3      = %xE0 %xA0-BF UTF8-tail / %xE1-EC 2( UTF8-tail ) /
+ *               %xED %x80-9F UTF8-tail / %xEE-EF 2( UTF8-tail )
+ * UTF8-4      = %xF0 %x90-BF 2( UTF8-tail ) / %xF1-F3 3( UTF8-tail ) /
+ *               %xF4 %x80-8F 2( UTF8-tail )
+ * UTF8-tail   = %x80-BF
  *)
-let readChar fileIn =
+let classify (state:validness) (octets:string) (nexto:char) : condition =
 
-   let rec read bytes =
-      (* read and inspect a byte *)
-      let bytes = bytes ^ string_of_byte (input_byte fileIn) in
-      let (i0, i1, i2, i3, i4) = invalidities bytes in
+   let index = String.length octets
+   and nextb = int_of_char nexto
+   in
 
-      (* valid so far: recurse for more, or return char *)
-      if not (i0 || i1 || i2 || i3 || i4) then
-         if not (isComplete bytes) then read bytes else Char bytes
+   let validness =
+      if (match state with
+         (* previously invalid stays invalid *)
+         | Invalid when index <> 0 -> false
+         | Invalid | Valid ->
+            (* is next octet valid ? *)
+            begin match index with
+            | 0 ->
+               (* head-byte (including ASCII) *)
+               (nexto <= '\x7F') || ((nexto >= '\xC2') && (nexto <= '\xF4'))
+            | 1 ->
+               (* first tail-byte has extra constraints *)
+               begin match octets.[0] with
+               | '\xE0' -> (nextb land 0b11100000) = 0b10100000
+               | '\xED' -> (nextb land 0b11100000) = 0b10000000
+               | '\xF0' -> (nextb >= 0x90) && (nextb <= 0xBF)
+               | '\xF4' -> (nextb land 0b11110000) = 0b10000000
+               | _      -> (nextb land 0b11000000) = 0b10000000
+               end
+            | 2
+            | 3 ->
+               (* other, simple, tail-bytes *)
+               (nextb land 0b11000000) = 0b10000000
+            | _ -> false
+            end)
+      then Valid else Invalid
+   in
 
-      (* invalid: return bytes *)
-      else
-         let len = String.length bytes in
-         (* maybe step back a byte in the read-stream *)
-         if i0 && (len > 1) then begin
-            seek_in fileIn (pos_in fileIn - 1) ;
-            Invalid (String.sub bytes 0 (len - 1)) end
-         else Invalid bytes in
-
-   try read ""
-   with
-   | End_of_file -> EOF
-   | Sys_error _ -> Fail
-
-end ;;
-
-
-
-(* entry point -------------------------------------------------------------- *)
-
-type mode = Check | Filter | Replace ;;
-
-(* standard Unicode 'replacement char' U+FFFD UTF-8:EFBFBD *)
-let replacementChar = "\xEF\xBF\xBD" in
-
-
-(* check if help message needed *)
-if ((Array.length Sys.argv) > 1) &&
-   ((Sys.argv.(1) = "-?") || (Sys.argv.(1) = "--help")) then
-
-   print_endline "\n\
-      \ \ UTF-8 Filter 2 (OCaml 4.00)\n\
-      \ \ Harrison Ainsworth / HXA7241 : 2014-05-18\n\
-      \ \ http://www.hxa.name\n\
-      \n\
-      Reads stdin and checks, filters, or replaces its valid UTF-8 content.\n\
-      * Check: returns status 0 if OK, else (invalid) returns status 1 and\n\
-      \ \ writes to stderr a message.\n\
-      * Filter: writes to stdout only the valid UTF-8 content.\n\
-      * Replace: writes to stdout the content with invalid parts replaced\n\
-      \ \ with 'replacement char's (U+FFFD EFBFBD).\n\
-      \n\
-      (Invalid UTF-8 meaning: malformed, overlong, surrogate, non-char,\n\
-      out-of-range -- according to RFC-3629 and Unicode 6.1.)\n\
-      \n\
-      Usage:\n  \
-        utf8check.ml [-(c|f|r)] < inFile [> outFile]\n\
-      -c -- check (default)\n\
-      -f -- filter\n\
-      -r -- replace\n"
-
-(* otherwise execute *)
-else begin
-
-   set_binary_mode_in  stdin  true ;
-   set_binary_mode_out stdout true ;
-   set_binary_mode_out stderr true ;
-
-   (* choose mode of operation *)
-   let mode:mode =
-      if (Array.length Sys.argv) > 1 then
-         let option1 = Sys.argv.(1) in
-         match option1 with
-         | "-c" -> Check
-         | "-f" -> Filter
-         | "-r" -> Replace
-         | _    ->
-            begin
-               prerr_endline ("*** Failed: unrecognized option: " ^ option1) ;
-               exit 1
-            end
-      else Check in
-
-   let invalidCount = ref 0 in
-
-   (* loop through chars until EOF or failure *)
-   while true do
-
-      match Utf8.readChar stdin with
-      | Utf8.Char c ->
-         (match mode with
-         | Check   -> ()
-         | Filter
-         | Replace -> print_string c)
-
-      | Utf8.Invalid s ->
-         begin
-            let len = String.length s in
-            if !invalidCount < (max_int - len) then
-               invalidCount := !invalidCount + len ;
-            match mode with
-            | Check
-            | Filter  -> ()
-            | Replace -> print_string replacementChar
+   let isComplete =
+      match validness with
+      | Valid ->
+         (* length according to head octet has been reached *)
+         begin match index with
+         | 0 -> nexto      <= '\x7F'
+         | 1 -> octets.[0] <  '\xE0'
+         | 2 -> octets.[0] <  '\xF0'
+         | _ -> true
          end
+      | Invalid ->
+         (* invalid sequences end at the next head-byte found
+            (which must be put back by caller) *)
+         (index > 0) && ((nextb land 0b11000000) <> 0b10000000)
+   in
 
-      | Utf8.EOF ->
-         begin
-            if !invalidCount <> 0 then
-               Printf.eprintf "Invalid byte count: %s%u\n"
-                  (if !invalidCount < max_int then "" else "at least ")
-                  !invalidCount ;
-            exit (match mode with
-               | Check   -> if !invalidCount = 0 then 0 else 1
-               | Filter
-               | Replace -> 0)
-         end
-
-      | Utf8.Fail ->
-         begin
-            prerr_endline "*** Failed: General/system failure." ;
-            exit 1
-         end
-   done
-
-end
+   if isComplete then Complete validness else Incomplete validness
 
 
+(* primary / low-level *)
+
+let readChar (inStream:char Stream.t) : charResult =
+
+   (* accumulate bytes into a chunk *)
+   let rec readBytes (state:validness) (bytes:Buffer.t) : charResult =
+      (* peek at next byte *)
+      match Stream.peek inStream with
+      | None      -> EOF (Buffer.contents bytes)
+      | Some next ->
+         (* consume next byte, and add to chunk *)
+         let accumulate () : unit =
+            Stream.junk inStream ;
+            Buffer.add_string bytes (string_of_char next)
+         in
+         match classify state (Buffer.contents bytes) next with
+         | Incomplete state -> readBytes state (accumulate () ; bytes)
+         | Complete Valid   -> Char (accumulate () ; Buffer.contents bytes)
+         | Complete Invalid -> Bad (Buffer.contents bytes)
+   in
+
+   readBytes Invalid (Buffer.create 8)
 
 
+(* secondary, for streams *)
+
+let rec checkStream (input:char Stream.t) : bool =
+
+   match readChar input with
+   | Char _ -> checkStream input
+   | Bad  _ -> false
+   | EOF  s -> (String.length s) = 0
 
 
+let rec scanStream (replacement:string)
+   (input:char Stream.t) (output:string->unit) : unit =
+
+   match readChar input with
+   | Char s -> (output s           ; scanStream replacement input output)
+   | Bad  _ -> (output replacement ; scanStream replacement input output)
+   | EOF  s -> output (if (String.length s) = 0 then "" else replacement)
 
 
-(* notes ---------------------------------------------------------------------*)
-
-(*
-
-illegal code points
--------------------
-
-### surrogates ###
-
-high: U+D800 - U+DBFF
-low:  U+DC00 - U+DFFF
-
-all: U+D800 - U+DFFF
-
-11011000 00000000 - 1101FFFF FFFFFFFF
-11101101 10100000 10000000 - 11101101 10FFFFFF 10FFFFFF
-
-U+D800 = ED A0 80
-U+DFFF = ED BF BF
+let filterStream : (char Stream.t) -> (string->unit) -> unit =
+   scanStream ""
 
 
-### non-chars ###
-
-1a and 1b:
-
-U+FFFE and U+FFFF (3 bytes)
-U+1FFFE and U+1FFFF (4 bytes)
-...
-U+10FFFE and U+10FFFF
+let replaceStream : (char Stream.t) -> (string->unit) -> unit =
+   scanStream _REPLACEMENT_CHAR
 
 
-11111111 11111111
-11101111 10111111 10111111  EF BF BF
+(* secondary, for strings *)
 
-00000001 11111111 11111111
-11110000 10011111 10111111 10111111  F0 9F BF BF
-...
-00010000 11111111 11111111
-11110100 10001111 10111111 10111111  F4 8F BF BF
-
-   09 0A 0B
-18 19 1A 1B
-28 29 2A 2B
-38 39 3A 3B
-48
-
-F0-F4 & 8-B
-
-2:
-
-U+FDD0 - U+FDEF
-
-11111101 11010000 - 11111101 11101111
-11101111 10110111 10010000 - 11101111 10110111 10101111
-EF B7 90 - EF B7 A7
+let check (s:string) : bool = checkStream (Stream.of_string s)
 
 
-### too high ###
+let scanString (replacement:string) (s:string) : string =
 
-all at or above:
-U-110000  F4 90 80 80
+   let buf = Buffer.create (String.length s) in
+   scanStream replacement (Stream.of_string s) (Buffer.add_string buf) ;
+   Buffer.contents buf
 
-are out of range
 
-*)
+let filter : string -> string  = scanString ""
+
+
+let replace : string -> string = scanString _REPLACEMENT_CHAR
